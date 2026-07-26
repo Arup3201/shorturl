@@ -11,9 +11,10 @@ import (
 
 type URLShortenerTestSuite struct {
 	suite.Suite
-	ctx    context.Context
-	db     *gorm.DB
-	userID string
+	ctx        context.Context
+	db         *gorm.DB
+	urlService *UrlService
+	userID     string
 }
 
 func TestURLShortenerSuite(t *testing.T) {
@@ -35,6 +36,7 @@ func (s *URLShortenerTestSuite) SetupSuite() {
 	s.Require().NoError(db.AutoMigrate(&ShortenedUrl{}), "failed to migrate schema")
 
 	s.db = db
+	s.urlService = &UrlService{&PostgresDB{db}}
 }
 
 func (s *URLShortenerTestSuite) TestShortenURL() {
@@ -48,12 +50,11 @@ func (s *URLShortenerTestSuite) TestShortenURL() {
 		},
 	}
 
-	var pgDB = &PostgresDB{s.db}
 	var url string
 	var err error
 	for _, test := range tests {
 		s.T().Run(test.name, func(t *testing.T) {
-			url, err = ShortenURL(s.ctx, test.longURL, pgDB)
+			url, err = s.urlService.ShortenURL(s.ctx, test.longURL)
 			s.Require().NoError(err)
 
 			s.Require().NotEqual(url, test.longURL)
@@ -72,10 +73,9 @@ func (s *URLShortenerTestSuite) TestURLIsCollisionFree() {
 	test_long_url := "https://chatgpt.com/c/6a5baca9-ed74-83e8-9b49-881a49bd8d7c"
 
 	var results = []string{}
-	var pgDB = &PostgresDB{s.db}
 	var url string
 	for range 1000 {
-		url, _ = ShortenURL(s.ctx, test_long_url, pgDB)
+		url, _ = s.urlService.ShortenURL(s.ctx, test_long_url)
 		results = append(results, url)
 	}
 

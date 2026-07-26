@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -60,4 +61,17 @@ func (pg *PostgresDB) Save(ctx context.Context,
 	}
 
 	return nil
+}
+
+func (pg *PostgresDB) Get(ctx context.Context,
+	id string) (*ShortenedUrl, error) {
+
+	row, err := gorm.G[ShortenedUrl](pg.db).Where("url = ?", id).First(ctx)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, errors.New("url not found")
+	} else if err != nil {
+		return nil, err
+	}
+
+	return &row, nil
 }

@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const URL_PREFIX = "https://short.ly/"
+
 var B62Mapping = map[uint8]byte{
 	0: '0', 1: '1', 2: '2', 3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9',
 	10: 'A', 11: 'B', 12: 'C', 13: 'D', 14: 'E', 15: 'F', 16: 'G', 17: 'H', 18: 'I', 19: 'J',
@@ -41,18 +43,36 @@ func getBase62(n uint64) string {
 	return res.String()
 }
 
-func ShortenURL(ctx context.Context,
-	longURL string,
-	db *PostgresDB) (string, error) {
+type UrlService struct {
+	db *PostgresDB
+}
+
+func NewUrlService(db *PostgresDB) *UrlService {
+	return &UrlService{db}
+}
+
+func (s *UrlService) ShortenURL(ctx context.Context,
+	longURL string) (string, error) {
 
 	random10Digit := genRandom10Digits()
 	base62 := getBase62(random10Digit)
-	shortUrl := "https://short.ly/" + base62
+	shortUrl := URL_PREFIX + base62
 
-	err := db.Save(ctx, longURL, shortUrl, "active", time.Now().Add(365*24*time.Hour))
+	err := s.db.Save(ctx, longURL, shortUrl, "active", time.Now().Add(365*24*time.Hour))
 	if err != nil {
 		return "", err
 	}
 
 	return shortUrl, nil
+}
+
+func (s *UrlService) GetOriginalUrl(ctx context.Context,
+	id string) (string, error) {
+
+	dbRow, err := s.db.Get(ctx, URL_PREFIX+id)
+	if err != nil {
+		return "", err
+	}
+
+	return dbRow.Original, nil
 }

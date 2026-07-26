@@ -35,18 +35,18 @@ func load() *Config {
 	}
 }
 
-type handler struct {
-	db *core.PostgresDB
+type router struct {
+	service *core.UrlService
 }
 
-func (h *handler) urlShortener(w http.ResponseWriter, r *http.Request) {
+func (rr *router) urlShortener(w http.ResponseWriter, r *http.Request) {
 	url := r.URL.Query().Get("url")
 	if url == "" {
 		http.Error(w, "url value missing, pass ?url=... to get short url", http.StatusBadRequest)
 		return
 	}
 
-	res, err := core.ShortenURL(r.Context(), url, h.db)
+	res, err := rr.service.ShortenURL(r.Context(), url)
 	if err != nil {
 		fmt.Println("[Error] ", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -56,6 +56,19 @@ func (h *handler) urlShortener(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{
 		"url": res,
 	})
+}
+
+func (rr *router) forwardToOriginal(w http.ResponseWriter, r *http.Request) {
+	shortUrlID := r.PathValue("id")
+
+	originalUrl, err := rr.service.GetOriginalUrl(r.Context(), shortUrlID)
+	if err != nil {
+		fmt.Println("[Error] ", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, originalUrl, http.StatusSeeOther)
 }
 
 func main() {
@@ -69,10 +82,11 @@ func main() {
 		return
 	}
 
-	h := &handler{db}
+	h := &router{core.NewUrlService(db)}
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /shorten", h.urlShortener)
+	mux.HandleFunc("GET /{id}", h.forwardToOriginal)
 
 	address := fmt.Sprintf("%s:%s", config.ServerHost, config.ServerPort)
 	server := http.Server{
