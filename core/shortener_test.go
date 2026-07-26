@@ -1,12 +1,43 @@
 package core
 
 import (
+	"context"
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
-func TestShortenURL(t *testing.T) {
+type URLShortenerTestSuite struct {
+	suite.Suite
+	ctx    context.Context
+	db     *gorm.DB
+	userID string
+}
+
+func TestURLShortenerSuite(t *testing.T) {
+	suite.Run(t, new(URLShortenerTestSuite))
+}
+
+func (s *URLShortenerTestSuite) SetupSuite() {
+	s.ctx = context.Background()
+	pg, err := CreatePostgresContainer(s.ctx)
+	s.Require().NoError(err, "could not start postgres container")
+
+	s.T().Cleanup(func() {
+		s.Require().NoError(pg.Terminate(s.ctx), "could not terminate postgres container")
+	})
+
+	db, err := gorm.Open(postgres.Open(pg.ConnectionString), &gorm.Config{})
+	s.Require().NoError(err, "failed to open gorm db")
+
+	s.Require().NoError(db.AutoMigrate(&ShortenedUrl{}), "failed to migrate schema")
+
+	s.db = db
+}
+
+func (s *URLShortenerTestSuite) TestShortenURL() {
 	tests := []struct {
 		name    string
 		longURL string
@@ -17,25 +48,35 @@ func TestShortenURL(t *testing.T) {
 		},
 	}
 
+	var pgDB = &PostgresDB{s.db}
 	var url string
+	var err error
 	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			url = ShortenURL(test.longURL)
+		s.T().Run(test.name, func(t *testing.T) {
+			url, err = ShortenURL(s.ctx, test.longURL, pgDB)
+			s.Require().NoError(err)
 
-			require.NotEqual(t, url, test.longURL)
+			s.Require().NotEqual(url, test.longURL)
 			// https://short.ly/lZyD
-			require.LessOrEqual(t, 17+4, len(url))
-			require.GreaterOrEqual(t, 17+14, len(url))
+			s.Require().LessOrEqual(17+4, len(url))
+			s.Require().GreaterOrEqual(17+14, len(url))
+
+			row, err := gorm.G[ShortenedUrl](s.db).Where("url = ?", url).First(s.ctx)
+			s.Require().NoError(err)
+			s.Require().Equal(row.Original, test.longURL)
 		})
 	}
 }
 
-func TestURLIsCollisionFree(t *testing.T) {
+func (s *URLShortenerTestSuite) TestURLIsCollisionFree() {
 	test_long_url := "https://chatgpt.com/c/6a5baca9-ed74-83e8-9b49-881a49bd8d7c"
 
-	results := []string{}
+	var results = []string{}
+	var pgDB = &PostgresDB{s.db}
+	var url string
 	for range 1000 {
-		results = append(results, ShortenURL(test_long_url))
+		url, _ = ShortenURL(s.ctx, test_long_url, pgDB)
+		results = append(results, url)
 	}
 
 	isCollisionFree := true
@@ -48,5 +89,5 @@ func TestURLIsCollisionFree(t *testing.T) {
 		}
 	}
 
-	require.True(t, isCollisionFree)
+	s.Require().True(isCollisionFree)
 }

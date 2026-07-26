@@ -1,9 +1,11 @@
 package core
 
 import (
+	"context"
 	"crypto/rand"
 	"math/big"
 	"strings"
+	"time"
 )
 
 var B62Mapping = map[uint8]byte{
@@ -39,8 +41,18 @@ func getBase62(n uint64) string {
 	return res.String()
 }
 
-func ShortenURL(longURL string) string {
+func ShortenURL(ctx context.Context,
+	longURL string,
+	db *PostgresDB) (string, error) {
+
 	random10Digit := genRandom10Digits()
 	base62 := getBase62(random10Digit)
-	return "https://short.ly/" + base62
+	shortUrl := "https://short.ly/" + base62
+
+	err := db.Save(ctx, longURL, shortUrl, "active", time.Now().Add(365*24*time.Hour))
+	if err != nil {
+		return "", err
+	}
+
+	return shortUrl, nil
 }
